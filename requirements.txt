@@ -1,0 +1,7 @@
+tensorboardX
+tensorboard
+torch
+torch-tb-profiler
+scikit-learn
+matplotlib
+timm==0.4.5

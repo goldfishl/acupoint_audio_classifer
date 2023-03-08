@@ -1,0 +1,8 @@
+*.pickle
+*.pkl 
+
+results/
+runs/
+models/
+data/
+__pycache__/
