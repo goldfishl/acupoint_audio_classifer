@@ -2,6 +2,6 @@ tensorboardX
 tensorboard
 torch
 torch-tb-profiler
-scikit-learn
+torchmetrics
 matplotlib
 timm==0.4.5

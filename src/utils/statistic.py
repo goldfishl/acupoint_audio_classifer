@@ -1,6 +1,7 @@
-from sklearn import metrics
-from scipy import stats
-import numpy as np
+import torch
+from torchmetrics.functional.classification import multiclass_accuracy, multiclass_recall
+from torchmetrics.functional.classification import multiclass_precision, multiclass_f1_score
+from torchmetrics.functional.classification import multiclass_average_precision, multiclass_confusion_matrix
 
 
 class AverageMeter(object):
@@ -20,56 +21,49 @@ class AverageMeter(object):
         self.count += n
         self.avg = self.sum / self.count
 
-
-def d_prime(auc):
-    standard_normal = stats.norm()
-    d_prime = standard_normal.ppf(auc) * np.sqrt(2.0)
-    return d_prime
-
-def calculate_stats(output, target):
-    """Calculate statistics including mAP, AUC, etc.
+def calculate_stats(preds, target):
+    # Because there are many negative samples for each class, ROC and AUROC scores are not used.
+    """Calculate statistics for classification task
     Args:
-      output: 2d array, (samples_num, classes_num)
-      target: 2d array, (samples_num, classes_num)
+      output: 2d tensor, (samples_num, classes_num)
+      target: 2d tensor, (samples_num, classes_num)
     Returns:
-      stats: list of statistic of each class.
+      stats: dict, statistics for classification task
     """
 
     classes_num = target.shape[-1]
-    stats = []
+    stats = {}
 
-    # Accuracy, only used for single-label classification such as esc-50, not for multiple label one such as AudioSet
-    acc = metrics.accuracy_score(np.argmax(target, 1), np.argmax(output, 1))
+    target = torch.argmax(target, dim=1)
 
-    # Class-wise statistics
-    for k in range(classes_num):
-        # print(target[:, k].shape, output[:, k].shape)
+    # Accuracy
+    stats['weighted_acc'] = multiclass_accuracy(preds, target, num_classes=classes_num, average='weighted')
+    stats['macro_acc'] = multiclass_accuracy(preds, target, num_classes=classes_num, average='macro')
+    stats['micro_acc'] = multiclass_accuracy(preds, target, num_classes=classes_num, average='micro')
 
-        # Average precision
-        avg_precision = metrics.average_precision_score(
-            target[:, k], output[:, k], average=None)
+    # Recall
+    stats['weighted_recall'] = multiclass_recall(preds, target, num_classes=classes_num, average='weighted')
+    stats['macro_recall'] = multiclass_recall(preds, target, num_classes=classes_num, average='macro')
+    stats['micro_recall'] = multiclass_recall(preds, target, num_classes=classes_num, average='micro')
 
-        # AUC
-        auc = metrics.roc_auc_score(target[:, k], output[:, k], average=None)
+    # Precision
+    stats['weighted_precision'] = multiclass_precision(preds, target, num_classes=classes_num, average='weighted')
+    stats['macro_precision'] = multiclass_precision(preds, target, num_classes=classes_num, average='macro')
+    stats['micro_precision'] = multiclass_precision(preds, target, num_classes=classes_num, average='micro')
 
-        # Precisions, recalls
-        (precisions, recalls, thresholds) = metrics.precision_recall_curve(
-            target[:, k], output[:, k])
+    # F1
+    stats['weighted_f1'] = multiclass_f1_score(preds, target, num_classes=classes_num, average='weighted')
+    stats['macro_f1'] = multiclass_f1_score(preds, target, num_classes=classes_num, average='macro')
+    stats['micro_f1'] = multiclass_f1_score(preds, target, num_classes=classes_num, average='micro')
 
-        # FPR, TPR
-        (fpr, tpr, thresholds) = metrics.roc_curve(target[:, k], output[:, k])
+    # Average precision
+    stats['weighted_avg_precision'] = multiclass_average_precision(preds, target, num_classes=classes_num, average='weighted')
+    stats['macro_avg_precision'] = multiclass_average_precision(preds, target, num_classes=classes_num, average='macro')
 
+    # Confusion matrix
+    stats['confusion_matrix'] = multiclass_confusion_matrix(preds, target, num_classes=classes_num)
 
-        save_every_steps = 1000     # Sample statistics to reduce size
-        dict = {'precisions': precisions[0::save_every_steps],
-                'recalls': recalls[0::save_every_steps],
-                'AP': avg_precision,
-                'fpr': fpr[0::save_every_steps],
-                'fnr': 1. - tpr[0::save_every_steps],
-                'auc': auc,
-                # note acc is not class-wise, this is just to keep consistent with other metrics
-                'acc': acc
-                }
-        stats.append(dict)
+    # Class-wise recall for analysis
+    stats['class_wise_recall'] = multiclass_recall(preds, target, num_classes=classes_num, average=None)
 
     return stats

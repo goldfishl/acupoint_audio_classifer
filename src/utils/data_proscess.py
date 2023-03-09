@@ -53,3 +53,10 @@ def load_split(data_path, split_file):
 
     return (wav_files, labels)
 
+
+def load_label(label_file):
+    with open(label_file, 'r') as f:
+        lines = f.readlines()
+        labels = [line.strip() for line in lines]
+    return labels
+

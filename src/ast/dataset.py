@@ -5,7 +5,7 @@ from torch.utils.data import Dataset
 import random
 import os
 
-from src.utils import acup_config, load_split
+from src.utils import acup_config, load_split, load_label
 
 
 
@@ -31,9 +31,7 @@ class AudioDataset(Dataset):
         self.target_length = model_config['target_length']
         self.data_path = data_config['data_path']
 
-        with open(data_config['label_file'], "r") as file:
-            lines = file.readlines()
-            label = [line.strip() for line in lines]
+        label = load_label(data_config['label_file'])
         self.label_to_index = {label[i]: i for i in range(len(label))}
         self.label_num = model_config['num_classes']
     
@@ -92,6 +90,10 @@ class AudioDataset(Dataset):
             label_indices =  torch.zeros(self.label_num)
             label_indices[self.label_to_index[self.label[index]]] = 1.0
 
+        # add noise to the input
+        if self.noise == True:
+            fbank = fbank + torch.rand(fbank.shape[0], fbank.shape[1]) * np.random.rand() / 10
+            fbank = torch.roll(fbank, np.random.randint(-10, 10), 0)
 
         # normalize the input for both training and test
         if not self.skip_norm:
@@ -99,11 +101,6 @@ class AudioDataset(Dataset):
         # skip normalization the input if you are trying to get the normalization stats.
         else:
             pass
-
-        # add noise to the input
-        if self.noise == True:
-            fbank = fbank + torch.rand(fbank.shape[0], fbank.shape[1]) * np.random.rand() / 10
-            fbank = torch.roll(fbank, np.random.randint(-10, 10), 0)     
 
         # SpecAug, not do for eval set
         freqm = torchaudio.transforms.FrequencyMasking(self.freqm)
