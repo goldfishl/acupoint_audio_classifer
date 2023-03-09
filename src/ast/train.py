@@ -15,17 +15,17 @@ from tensorboardX import SummaryWriter
 def train(audio_model, train_loader, val_loader, writer):
     torch.set_grad_enabled(True)
 
-    global_step, epoch = 1, 1
+    global_step, epoch = 0, 0
     best_acc = 0
     exp_dir = exp_config['result_path']
 
-    optimizer, warmup_scheduler = set_optimizer_scheduler(audio_model, writer)
+    optimizer, normal_scheduler = set_optimizer_scheduler(audio_model, writer)
     loss_fn = nn.BCEWithLogitsLoss()
 
     audio_model = audio_model.to(device)
     audio_model.train()
  
-    while epoch < exp_config['n_epochs'] + 1:
+    while epoch < exp_config['n_epochs']:
         audio_model.train()
         for i, (audio_input, labels) in enumerate(train_loader):
                 
@@ -36,6 +36,10 @@ def train(audio_model, train_loader, val_loader, writer):
             audio_output = audio_model(audio_input, 'ft_cls')
             loss = loss_fn(audio_output, labels)
 
+            if global_step <= exp_config['warmup_end'] and global_step % exp_config['warmup_step'] == 0:
+                optimizer.param_groups[0]['lr'] = global_step / exp_config['warmup_end'] * exp_config['lr']
+                optimizer.param_groups[1]['lr'] = global_step / exp_config['warmup_end'] * exp_config['lr'] * exp_config['head_lr']
+
             writer.add_scalar('Loss/train', loss.item(), global_step)
             writer.add_scalar('Learning Rate/base', optimizer.param_groups[0]['lr'], global_step)
             writer.add_scalar('Learning Rate/head_mlp', optimizer.param_groups[1]['lr'], global_step)
@@ -44,9 +48,9 @@ def train(audio_model, train_loader, val_loader, writer):
             loss.backward()
             optimizer.step()
 
-            # warmup
-            if global_step < exp_config['warmup_steps']:
-                warmup_scheduler.step()
+            # # warmup
+            # if global_step <= exp_config['warmup_end'] and global_step % exp_config['warmup_step'] == 0:
+            #     warmup_scheduler.step()
 
             global_step += 1
 
@@ -57,6 +61,9 @@ def train(audio_model, train_loader, val_loader, writer):
             best_acc = acc
             torch.save(audio_model.state_dict(), "%s/models/best_audio_model.pth" % (exp_dir))
             torch.save(optimizer.state_dict(), "%s/models/best_optim_state.pth" % (exp_dir))
+        
+        # normal scheduler every epoch
+        normal_scheduler.step()
 
         epoch += 1
 
@@ -141,11 +148,18 @@ def set_optimizer_scheduler(audio_model, writer):
     writer.add_text('Text/model', 'Total mlp parameter number is : {:.3f} million'.format(sum(p.numel() for p in mlp_params) / 1e6))
     writer.add_text('Text/model', 'Total base parameter number is : {:.3f} million'.format(sum(p.numel() for p in base_params) / 1e6))
     
-    warmup_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=[lambda step: (step / exp_config['warmup_steps']) * exp_config['lr'], 
-                                                                               lambda step: (step / exp_config['warmup_steps']) * exp_config['lr'] * exp_config['head_lr']])
-    # scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, list(range(exp_config['lrscheduler_start'], exp_config['lrscheduler_end'], exp_config['lrscheduler_step'])),gamma=exp_config['lrscheduler_gamma'])
-    # writer.add_text('Text/hyperparameters', 'The learning rate scheduler starts at {:d} epoch with decay rate of {:.3f} every {:d} epoches'.format(exp_config['lrscheduler_start'], exp_config['lrscheduler_gamma'], exp_config['lrscheduler_step']))
-    return optimizer, warmup_scheduler
+
+    # set scheduler will reset the initial lr set by the optimizer to 0.
+    # warmup_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=[lambda step: (step / exp_config['warmup_end']) * exp_config['lr'], 
+    #                                                                            lambda step: (step / exp_config['warmup_end']) * exp_config['lr'] * exp_config['head_lr']])
+
+
+
+                                                                               
+    normal_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, list(range(exp_config['lrscheduler_start'] - 1, exp_config['lrscheduler_end'], exp_config['lrscheduler_step'])),gamma=exp_config['lrscheduler_gamma'])
+    writer.add_text('Text/hyperparameters', 'The learning rate scheduler starts at {:d} epoch with decay rate of {:.3f} every {:d} epoches'.format(exp_config['lrscheduler_start'], exp_config['lrscheduler_gamma'], exp_config['lrscheduler_step']))
+    return optimizer, normal_scheduler
+    # return optimizer
 
 
 
@@ -177,3 +191,8 @@ if __name__ == '__main__':
         audio_model = torch.nn.DataParallel(audio_model)
 
     train(audio_model, train_loader, val_loader, writer)
+    # for i in range(0,1001,50):
+    #     print(i, exp_config['warmup_end'])
+    #     print((i / exp_config['warmup_end']))
+    #     print((i / exp_config['warmup_end']) * exp_config['lr'])
+    #     print('-'*20)

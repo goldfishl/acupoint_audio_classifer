@@ -24,13 +24,14 @@ exp_config = {
     'head_lr' : 1,  # head learning rate multiplier
     'lr' : 2.5e-4,
     'weight_decay' : 5e-7,
-    # 'lrscheduler_start' : 5,
-    # 'lrscheduler_step' : 1,
-    # 'lrscheduler_end' : 1000,
-    # 'lrscheduler_gamma' : 0.85,
+    'lrscheduler_start' : 5,
+    'lrscheduler_step' : 1,
+    'lrscheduler_end' : 1000,
+    'lrscheduler_gamma' : 0.85,  # normal scheduler every epoch
     'n_epochs' : 30,
     'warmup' : True,
-    'warmup_steps' : 1000,
+    'warmup_step' : 50,
+    'warmup_end' : 1000,  # set -1 to disable warmup
     'result_path' : os.path.join('results', 'ssast'),
     'n_print_steps' : 100,
 }
