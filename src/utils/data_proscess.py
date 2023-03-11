@@ -30,10 +30,11 @@ def split_dataset(config):
 
 
     # Write the file lists to disk
-    split_files = config['split_files'].values()
+    split_files = [config['split_files']['train'], 
+                   config['split_files']['valid'], config['split_files']['test']]
     split_indices = [train_indices, val_indices, test_indices]
     for split_file, split_indices in zip(split_files, split_indices):
-        split_path = os.path.join(config['root_path'], split_file)
+        split_path = os.path.join(split_file)
         split_indices = sorted(split_indices)
         with open(split_path, 'w') as f:
             for i in split_indices:

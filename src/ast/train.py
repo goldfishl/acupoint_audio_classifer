@@ -20,7 +20,7 @@ def train(audio_model, train_loader, val_loader, writer):
         audio_model = torch.nn.DataParallel(audio_model)
 
     global_step, epoch = 0, 0
-    save_config['metric']['val_recall'], best_epoch = 0, 0
+    save_config['metric']['Hparam/val_recall'], best_epoch = 0, 0
 
     # record the average training loss
     loss_meter = AverageMeter()
@@ -46,7 +46,7 @@ def train(audio_model, train_loader, val_loader, writer):
                 optimizer.param_groups[0]['lr'] = global_step / exp_config['warmup_end'] * exp_config['lr']
                 optimizer.param_groups[1]['lr'] = global_step / exp_config['warmup_end'] * exp_config['lr'] * exp_config['head_lr']
 
-            loss_meter.update(np.mean(loss), B)
+            loss_meter.update(loss.item(), B)
             writer.add_scalar('Loss/train_avg', loss_meter.avg, global_step)
             writer.add_scalar('Loss/train', loss.item(), global_step)
             writer.add_scalar('Learning Rate/base', optimizer.param_groups[0]['lr'], global_step)
@@ -65,12 +65,12 @@ def train(audio_model, train_loader, val_loader, writer):
         # validate
         stats = validate(audio_model, val_loader, writer, epoch)
 
-        if stats['weighted_recall'] > save_config['metric']['val_recall']:
-            save_config['metric']['val_loss'] = stats['val_loss']
-            save_config['metric']['val_recall'] = stats['weighted_recall']
-            save_config['metric']['val_precision'] = stats['weighted_precision']
-            save_config['metric']['val_f1'] = stats['weighted_f1']
-            save_config['metric']['val_accuracy'] = stats['weighted_acc']
+        if stats['macro_recall'] > save_config['metric']['Hparam/val_recall']:
+            save_config['metric']['Hparam/val_loss'] = stats['val_loss']
+            save_config['metric']['Hparam/val_recall'] = stats['macro_recall']
+            save_config['metric']['Hparam/val_precision'] = stats['macro_precision']
+            save_config['metric']['Hparam/val_f1'] = stats['macro_f1']
+            save_config['metric']['Hparam/val_accuracy'] = stats['macro_acc']
 
             best_epoch = epoch
             torch.save(audio_model.state_dict(), save_config['best_model_path'])
@@ -85,7 +85,8 @@ def train(audio_model, train_loader, val_loader, writer):
     
 
 
-def validate(audio_model, val_loader, writer, epoch=None, split='val'):
+def validate(audio_model, val_loader, writer, epoch=0, split='val'):
+    loss_meter = AverageMeter()
     if not isinstance(audio_model, nn.DataParallel):
         audio_model = nn.DataParallel(audio_model)
     audio_model = audio_model.to(device)
@@ -113,10 +114,11 @@ def validate(audio_model, val_loader, writer, epoch=None, split='val'):
             A_predictions.append(predictions)
             A_targets.append(target.to('cpu'))
             A_loss.append(loss.to('cpu').detach())
+            loss_meter.update(loss.item(), audio_input.size(0))
 
         predictions = torch.cat(A_predictions)
         targets = torch.cat(A_targets)
-        loss = np.mean(A_loss)
+        loss = loss_meter.avg
         stats = calculate_stats(predictions, targets)
         stats["val_loss"] = loss
 
@@ -124,32 +126,23 @@ def validate(audio_model, val_loader, writer, epoch=None, split='val'):
 
         if split == 'val':
             writer.add_scalar(f'Loss/val_epoch', loss, epoch)
-            writer.add_scalar('Val_Accuracy/weighted_accuracy', stats['weighted_acc'], epoch)
-            writer.add_scalar('Val_Accuracy/macro_accuracy', stats['macro_acc'], epoch)
-            writer.add_scalar('Val_Accuracy/micro_accuracy', stats['micro_acc'], epoch)
+            writer.add_scalar('Val_Metrics/macro_accuracy', stats['macro_acc'], epoch)
 
-            writer.add_scalar('Val_Recall/weighted_recall', stats['weighted_recall'], epoch)
-            writer.add_scalar('Val_Recall/macro_recall', stats['macro_recall'], epoch)
-            writer.add_scalar('Val_Recall/micro_recall', stats['micro_recall'], epoch)
+            writer.add_scalar('Val_Metrics/macro_recall', stats['macro_recall'], epoch)
 
-            writer.add_scalar('Val_Precision/weighted_precision', stats['weighted_precision'], epoch)
-            writer.add_scalar('Val_Precision/macro_precision', stats['macro_precision'], epoch)
-            writer.add_scalar('Val_Precision/micro_precision', stats['micro_precision'], epoch)
+            writer.add_scalar('Val_Metrics/macro_precision', stats['macro_precision'], epoch)
 
-            writer.add_scalar('Val_F1/weighted_f1', stats['weighted_f1'], epoch)
-            writer.add_scalar('Val_F1/macro_f1', stats['macro_f1'], epoch)
-            writer.add_scalar('Val_F1/micro_f1', stats['micro_f1'], epoch)
+            writer.add_scalar('Val_Metrics/macro_f1', stats['macro_f1'], epoch)
 
-            writer.add_scalar('Val_Average_Precision/weighted_avg_precision', stats['weighted_avg_precision'], epoch)
-            writer.add_scalar('Val_Average_Precision/macro_avg_precision', stats['macro_avg_precision'], epoch)
+            writer.add_scalar('Val_Metrics/macro_AP', stats['macro_avg_precision'], epoch)
 
         elif split == 'test':
-            save_config['metric']['test_loss'] = loss
-            save_config['metric']['test_recall'] = stats['weighted_recall']
-            save_config['metric']['test_precision'] = stats['weighted_precision']
-            save_config['metric']['test_f1'] = stats['weighted_f1']
-            save_config['metric']['test_accuracy'] = stats['weighted_acc']
-            save_config['metric']['test_avg_precision'] = stats['weighted_avg_precision']
+            save_config['metric']['Hparam/test_loss'] = loss
+            save_config['metric']['Hparam/test_recall'] = stats['macro_recall']
+            save_config['metric']['Hparam/test_precision'] = stats['macro_precision']
+            save_config['metric']['Hparam/test_f1'] = stats['macro_f1']
+            save_config['metric']['Hparam/test_accuracy'] = stats['macro_acc']
+            save_config['metric']['Hparam/test_avg_precision'] = stats['macro_avg_precision']
 
             # save test confusion matrix
             label = load_label(test_config['label_file'])
@@ -159,7 +152,7 @@ def validate(audio_model, val_loader, writer, epoch=None, split='val'):
             # save top k worst save_config['metric'] class pr curve in test
             worse_k_index = np.argsort(stats['class_wise_recall'])[:save_config['worse_k']]
             for i, k in enumerate(worse_k_index):
-                writer.add_pr_curve(f'Test_worse_K/Top_worse_{i}_{ label[k] }', targets[:, k], predictions[:, k], epoch)
+                writer.add_pr_curve(f'Test_worse_K/Top_worse_{i}_{ label[k] }', targets[:, k], predictions[:, k])
 
 
     return stats
@@ -168,7 +161,7 @@ def validate(audio_model, val_loader, writer, epoch=None, split='val'):
 def set_optimizer_scheduler(audio_model, writer):
     
     # calculate statistics for the model
-    save_config['metric']['model_params'] = sum(p.numel() for p in audio_model.parameters()) / 1e6
+    save_config['metric']['Hparam/model_params'] = sum(p.numel() for p in audio_model.parameters()) / 1e6
     trainables = [p for p in audio_model.parameters() if p.requires_grad]
     writer.add_text('Model', 'Total trainable parameter number is : {:.3f} million'.format(sum(p.numel() for p in trainables) / 1e6))
 

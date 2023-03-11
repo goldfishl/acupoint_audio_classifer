@@ -37,27 +37,27 @@ def calculate_stats(preds, target):
     target = torch.argmax(target, dim=1)
 
     # Accuracy
-    stats['weighted_acc'] = multiclass_accuracy(preds, target, num_classes=classes_num, average='weighted')
+    # stats['weighted_acc'] = multiclass_accuracy(preds, target, num_classes=classes_num, average='weighted')
     stats['macro_acc'] = multiclass_accuracy(preds, target, num_classes=classes_num, average='macro')
-    stats['micro_acc'] = multiclass_accuracy(preds, target, num_classes=classes_num, average='micro')
+    # stats['micro_acc'] = multiclass_accuracy(preds, target, num_classes=classes_num, average='micro')
 
     # Recall
-    stats['weighted_recall'] = multiclass_recall(preds, target, num_classes=classes_num, average='weighted')
+    # stats['weighted_recall'] = multiclass_recall(preds, target, num_classes=classes_num, average='weighted')
     stats['macro_recall'] = multiclass_recall(preds, target, num_classes=classes_num, average='macro')
-    stats['micro_recall'] = multiclass_recall(preds, target, num_classes=classes_num, average='micro')
+    # stats['micro_recall'] = multiclass_recall(preds, target, num_classes=classes_num, average='micro')
 
     # Precision
-    stats['weighted_precision'] = multiclass_precision(preds, target, num_classes=classes_num, average='weighted')
+    # stats['weighted_precision'] = multiclass_precision(preds, target, num_classes=classes_num, average='weighted')
     stats['macro_precision'] = multiclass_precision(preds, target, num_classes=classes_num, average='macro')
-    stats['micro_precision'] = multiclass_precision(preds, target, num_classes=classes_num, average='micro')
+    # stats['micro_precision'] = multiclass_precision(preds, target, num_classes=classes_num, average='micro')
 
     # F1
-    stats['weighted_f1'] = multiclass_f1_score(preds, target, num_classes=classes_num, average='weighted')
+    # stats['weighted_f1'] = multiclass_f1_score(preds, target, num_classes=classes_num, average='weighted')
     stats['macro_f1'] = multiclass_f1_score(preds, target, num_classes=classes_num, average='macro')
-    stats['micro_f1'] = multiclass_f1_score(preds, target, num_classes=classes_num, average='micro')
+    # stats['micro_f1'] = multiclass_f1_score(preds, target, num_classes=classes_num, average='micro')
 
     # Average precision
-    stats['weighted_avg_precision'] = multiclass_average_precision(preds, target, num_classes=classes_num, average='weighted')
+    # stats['weighted_avg_precision'] = multiclass_average_precision(preds, target, num_classes=classes_num, average='weighted')
     stats['macro_avg_precision'] = multiclass_average_precision(preds, target, num_classes=classes_num, average='macro')
 
     # Confusion matrix

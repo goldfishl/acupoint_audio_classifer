@@ -23,16 +23,16 @@ model_config = {
 # experiment config that will be saved in tensorboard
 exp_config = {
     'model_name' : 'SSAST-Base-Frame-400',
-    'train_batch_size' : 32,
-    'lr' : 2.5e-4,
-    'head_lr' : 1,  # head learning rate multiplier
+    'batch_size' : 32,
+    'lr' : 4e-4,
+    'head_lr' : 1.5,  # head learning rate multiplier
     'weight_decay' : 5e-7,
     'lrscheduler_start' : 5, 
     'lrscheduler_step' : 1,
     'lrscheduler_end' : 1000,
-    'lrscheduler_gamma' : 0.85,  # normal scheduler every epoch
+    'lrscheduler_gamma' : 0.8,  # normal scheduler every epoch
     'n_epochs' : 30,
-    'warmup_step' : 50,
+    'warmup_step' : 1,
     'warmup_end' : 1000,  # set -1 to disable warmup
     'freq_mask' : 48,  # set 0 to disable freq_mask
     'time_mask' : 48,  # set 0 to disable time_mask
@@ -58,7 +58,7 @@ test_confusion_matrix_path = os.path.join(save_config['log_dir'], 'test_confusio
 
 ## train dataloader config
 train_config = {
-    'batch_size' : exp_config['train_batch_size'],
+    'batch_size' : exp_config['batch_size'],
     'num_workers' : 8,
     'feature' : wav2fbank(model_config['num_mel_bins'],
                           compliance='kaldi'),
