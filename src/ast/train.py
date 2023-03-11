@@ -6,9 +6,10 @@ import os
 import datetime
 from .ast_models import ASTModel
 from .config import model_config, train_config, val_config, test_config, device
-from .config import exp_config, save_config, test_confusion_matrix_path
-from src.utils import AverageMeter, calculate_stats, load_label
+from .config import exp_config, save_config
+from src.utils import AverageMeter, calculate_stats, load_label, worse_k_bar_fig
 from .dataset import AudioDataset
+# use tensorboardX rather than torch.utils.tensorboard
 from tensorboardX import SummaryWriter
 
 
@@ -19,8 +20,10 @@ def train(audio_model, train_loader, val_loader, writer):
     if not isinstance(audio_model, torch.nn.DataParallel):
         audio_model = torch.nn.DataParallel(audio_model)
 
-    global_step, epoch = 0, 0
-    save_config['metric']['Hparam/val_recall'], best_epoch = 0, 0
+    global_step, epoch = 1, 1
+    save_config['metric']['Hparam/val_recall'] = 0
+    best_epoch = 1
+    best_val_stats = None
 
     # record the average training loss
     loss_meter = AverageMeter()
@@ -31,7 +34,7 @@ def train(audio_model, train_loader, val_loader, writer):
     audio_model = audio_model.to(device)
     audio_model.train()
  
-    while epoch < exp_config['n_epochs']:
+    while epoch < exp_config['n_epochs'] + 1:
         audio_model.train()
         for i, (audio_input, labels) in enumerate(train_loader):
                 
@@ -42,15 +45,16 @@ def train(audio_model, train_loader, val_loader, writer):
             audio_output = audio_model(audio_input, 'ft_cls')
             loss = loss_fn(audio_output, labels)
 
-            if global_step <= exp_config['warmup_end'] and global_step % exp_config['warmup_step'] == 0:
+            if global_step <= exp_config['warmup_end'] and (global_step % exp_config['warmup_step'] == 0 or global_step == 1):
                 optimizer.param_groups[0]['lr'] = global_step / exp_config['warmup_end'] * exp_config['lr']
                 optimizer.param_groups[1]['lr'] = global_step / exp_config['warmup_end'] * exp_config['lr'] * exp_config['head_lr']
 
             loss_meter.update(loss.item(), B)
-            writer.add_scalar('Loss/train_avg', loss_meter.avg, global_step)
-            writer.add_scalar('Loss/train', loss.item(), global_step)
-            writer.add_scalar('Learning Rate/base', optimizer.param_groups[0]['lr'], global_step)
-            writer.add_scalar('Learning Rate/head_mlp', optimizer.param_groups[1]['lr'], global_step)
+            writer.add_scalar('Loss/train_step', loss.item(), global_step)
+            writer.add_scalar('Loss/avg_train_step', loss_meter.avg, global_step)
+            writer.add_scalar('Learning Rate/base_lr', optimizer.param_groups[0]['lr'], global_step)
+            writer.add_scalar('Learning Rate/head_mlp_lr', optimizer.param_groups[1]['lr'], global_step)
+
 
             optimizer.zero_grad()
             loss.backward()
@@ -66,26 +70,26 @@ def train(audio_model, train_loader, val_loader, writer):
         stats = validate(audio_model, val_loader, writer, epoch)
 
         if stats['macro_recall'] > save_config['metric']['Hparam/val_recall']:
-            save_config['metric']['Hparam/val_loss'] = stats['val_loss']
-            save_config['metric']['Hparam/val_recall'] = stats['macro_recall']
-            save_config['metric']['Hparam/val_precision'] = stats['macro_precision']
-            save_config['metric']['Hparam/val_f1'] = stats['macro_f1']
-            save_config['metric']['Hparam/val_accuracy'] = stats['macro_acc']
-
+            best_val_stats = stats
             best_epoch = epoch
+            save_config['metric']['Hparam/val_recall'] = stats['macro_recall']
+
+
             torch.save(audio_model.state_dict(), save_config['best_model_path'])
         
         # normal scheduler every epoch
         normal_scheduler.step()
 
-        writer.add_scalar('Loss/train_avg_epoch', loss_meter.avg, epoch)
+        writer.add_scalar('Loss/train_epoch', loss_meter.avg, epoch)
+
+        loss_meter.reset()
         epoch += 1
     
-
+    return best_val_stats, best_epoch
     
 
 
-def validate(audio_model, val_loader, writer, epoch=0, split='val'):
+def validate(audio_model, val_loader, writer, epoch=None, split='val'):
     loss_meter = AverageMeter()
     if not isinstance(audio_model, nn.DataParallel):
         audio_model = nn.DataParallel(audio_model)
@@ -120,40 +124,17 @@ def validate(audio_model, val_loader, writer, epoch=0, split='val'):
         targets = torch.cat(A_targets)
         loss = loss_meter.avg
         stats = calculate_stats(predictions, targets)
-        stats["val_loss"] = loss
+        stats["loss"] = loss
+
 
         writer.add_pr_curve(split.capitalize(), targets, predictions, epoch)
 
-        if split == 'val':
-            writer.add_scalar(f'Loss/val_epoch', loss, epoch)
-            writer.add_scalar('Val_Metrics/macro_accuracy', stats['macro_acc'], epoch)
-
-            writer.add_scalar('Val_Metrics/macro_recall', stats['macro_recall'], epoch)
-
-            writer.add_scalar('Val_Metrics/macro_precision', stats['macro_precision'], epoch)
-
-            writer.add_scalar('Val_Metrics/macro_f1', stats['macro_f1'], epoch)
-
-            writer.add_scalar('Val_Metrics/macro_AP', stats['macro_avg_precision'], epoch)
-
-        elif split == 'test':
-            save_config['metric']['Hparam/test_loss'] = loss
-            save_config['metric']['Hparam/test_recall'] = stats['macro_recall']
-            save_config['metric']['Hparam/test_precision'] = stats['macro_precision']
-            save_config['metric']['Hparam/test_f1'] = stats['macro_f1']
-            save_config['metric']['Hparam/test_accuracy'] = stats['macro_acc']
-            save_config['metric']['Hparam/test_avg_precision'] = stats['macro_avg_precision']
-
-            # save test confusion matrix
-            label = load_label(test_config['label_file'])
-            df = pd.DataFrame(stats['confusion_matrix'], index=label, columns=label)
-            df.to_csv(test_confusion_matrix_path, index=True, header=True)
-
-            # save top k worst save_config['metric'] class pr curve in test
-            worse_k_index = np.argsort(stats['class_wise_recall'])[:save_config['worse_k']]
-            for i, k in enumerate(worse_k_index):
-                writer.add_pr_curve(f'Test_worse_K/Top_worse_{i}_{ label[k] }', targets[:, k], predictions[:, k])
-
+        writer.add_scalar(f'Loss/{split}_epoch', loss, epoch)
+        writer.add_scalar(f'Metrics/{split}_accuracy', stats['macro_acc'], epoch)
+        writer.add_scalar(f'Metrics/{split}_recall', stats['macro_recall'], epoch)
+        writer.add_scalar(f'Metrics/{split}_precision', stats['macro_precision'], epoch)
+        writer.add_scalar(f'Metrics/{split}_f1', stats['macro_f1'], epoch)
+        writer.add_scalar(f'Metrics/{split}_AP', stats['macro_avg_precision'], epoch)
 
     return stats
 
@@ -194,11 +175,49 @@ def set_optimizer_scheduler(audio_model, writer):
     return optimizer, normal_scheduler
 
 
+def save_results(best_val_stats, test_stats, writer):
+    # save test metrics
+    save_config['metric']['Hparam/test_loss'] = test_stats['loss']
+    save_config['metric']['Hparam/test_recall'] = test_stats['macro_recall']
+    save_config['metric']['Hparam/test_precision'] = test_stats['macro_precision']
+    save_config['metric']['Hparam/test_f1'] = test_stats['macro_f1']
+    save_config['metric']['Hparam/test_accuracy'] = test_stats['macro_acc']
+    save_config['metric']['Hparam/test_avg_precision'] = test_stats['macro_avg_precision']
+
+    # save test confusion matrix
+    label = load_label(test_config['label_file'])
+    df = pd.DataFrame(test_stats['confusion_matrix'], index=label, columns=label)
+    df.to_csv(os.path.join(save_config['log_dir'], 'test_confusion_matrix.csv'), index=True, header=True)
+
+    # save test worst k bar chart
+    dataset = AudioDataset(model_config, test_config)
+    fig = worse_k_bar_fig(best_val_stats, label, save_config['worse_k'], dataset, 'test')
+    writer.add_figure('worst_recall', fig)
+
+    # save best val metrics
+    save_config['metric']['Hparam/val_loss'] = best_val_stats['loss']
+    save_config['metric']['Hparam/val_precision'] = best_val_stats['macro_precision']
+    save_config['metric']['Hparam/val_f1'] = best_val_stats['macro_f1']
+    save_config['metric']['Hparam/val_accuracy'] = best_val_stats['macro_acc']
+
+    # save val worst k bar chart
+    dataset = AudioDataset(model_config, val_config)
+    fig = worse_k_bar_fig(best_val_stats, label, save_config['worse_k'], dataset, 'val')
+    writer.add_figure('worst_recall', fig)
+    
+    writer.add_text('Info', f'{ datetime.datetime.now() } Finish experiment')
+    writer.close()
+
+    
+    writer = SummaryWriter(save_config['hparam_log_dir'], flush_secs=30)
+    writer.add_hparams(exp_config, save_config['metric'], name=save_config['hparam_session_name'])
+    writer.close()
 
 
 
 if __name__ == '__main__':
     os.makedirs(save_config['log_dir'], exist_ok=True)
+    os.makedirs(save_config['hparam_log_dir'], exist_ok=True)
     writer = SummaryWriter(save_config['log_dir'], flush_secs=30)
     
     writer.add_text('Info', f'{ datetime.datetime.now() } Start to load train and val data')
@@ -221,7 +240,7 @@ if __name__ == '__main__':
                         load_pretrained_mdl_path=model_config['pretrained_mdl_path'])
 
     writer.add_text('Info', f'{ datetime.datetime.now() } Start to train the model')
-    train(audio_model, train_loader, val_loader, writer)
+    best_val_stats, best_epoch = train(audio_model, train_loader, val_loader, writer)
 
     writer.add_text('Info', f'{ datetime.datetime.now() } Start to evaluate the model')
     # evaluate on test set
@@ -233,9 +252,6 @@ if __name__ == '__main__':
     sd = torch.load(save_config['best_model_path'])
     audio_model.load_state_dict(sd, strict=False)
 
-    validate(audio_model, test_loader, writer, epoch=exp_config['n_epochs'] - 1, split='test')
-    writer.add_text('Info', f'{ datetime.datetime.now() } Finish experiment')
+    test_stats = validate(audio_model, test_loader, writer, epoch=best_epoch, split='test')
 
-    
-    writer.add_hparams(exp_config, save_config['metric'], name=save_config['hparam_session_name'])
-    writer.close()
+    save_results(best_val_stats, test_stats, writer)
