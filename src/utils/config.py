@@ -18,6 +18,12 @@ acup_config['split_files']['valid'] = os.path.join(acup_config['root_path'], 'va
 acup_config['split_files']['test'] = os.path.join(acup_config['root_path'], 'test.txt')
 acup_config['label_file'] = os.path.join(acup_config['root_path'], 'label.txt')
 
-
-
-
+# signal process config
+signal_config = {
+    'sample_rate' : 16000,  # Hz
+    'frame_length' : 25,  # ms
+    'frame_shift' : 10,  # ms
+    'window_type' : 'hanning',  # ‘hamming’|’hanning’|’povey’|’rectangular’|’blackman’
+    'num_mel_bins' : 128,  # mel triangle filter number
+    'compliance' : 'kaldi',  # 'kaldi' | 'torchaudio'
+}

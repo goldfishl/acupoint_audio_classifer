@@ -1,15 +1,18 @@
 import os
-from src.utils import wav2fbank, acup_config
+from src.utils import wav2fbank, acup_config, signal_config
 import torch
 import datetime
 
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
+exp_name = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+
+
 
 # ast audio classifier config
 ## model config
 model_config = {
-    'num_mel_bins' : 128,
+    'num_mel_bins' : signal_config['num_mel_bins'],
     'target_length' : 512,
     'num_classes' : 418,
     'fshape' : 128,
@@ -24,7 +27,7 @@ model_config = {
 exp_config = {
     'model_name' : 'SSAST-Base-Frame-400',
     'batch_size' : 32,
-    'lr' : 1e-3,
+    'lr' : 2.5e-5,
     'head_lr' : 1,  # head learning rate multiplier
     'weight_decay' : 5e-7,
     'lrscheduler_start' : 5, 
@@ -43,7 +46,6 @@ exp_config = {
     'skip_norm' : False,
 }
 
-exp_name = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
 
 # save config
 save_config = {
@@ -61,8 +63,7 @@ save_config = {
 train_config = {
     'batch_size' : exp_config['batch_size'],
     'num_workers' : 8,
-    'feature' : wav2fbank(model_config['num_mel_bins'],
-                          compliance='kaldi'),
+    'feature' : wav2fbank(),
     'data_path' : acup_config['data_path'],
     'split_file' : acup_config['split_files']['train'],
     'label_file' : acup_config['label_file'],
