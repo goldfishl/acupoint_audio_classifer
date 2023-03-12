@@ -24,7 +24,7 @@ model_config = {
 exp_config = {
     'model_name' : 'SSAST-Base-Frame-400',
     'batch_size' : 32,
-    'lr' : 5e-4,
+    'lr' : 1e-3,
     'head_lr' : 1,  # head learning rate multiplier
     'weight_decay' : 5e-7,
     'lrscheduler_start' : 5, 

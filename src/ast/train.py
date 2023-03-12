@@ -192,7 +192,7 @@ def save_results(best_val_stats, test_stats, writer):
     # save test worst k bar chart
     dataset = AudioDataset(model_config, test_config)
     fig = worse_k_bar_fig(best_val_stats, label, save_config['worse_k'], dataset, 'test')
-    writer.add_figure('worst_recall', fig)
+    writer.add_figure('Worst/Test_Recall', fig)
 
     # save best val metrics
     save_config['metric']['Hparam/val_loss'] = best_val_stats['loss']
@@ -203,7 +203,7 @@ def save_results(best_val_stats, test_stats, writer):
     # save val worst k bar chart
     dataset = AudioDataset(model_config, val_config)
     fig = worse_k_bar_fig(best_val_stats, label, save_config['worse_k'], dataset, 'val')
-    writer.add_figure('worst_recall', fig)
+    writer.add_figure('Worst/Val_Recall', fig)
     
     writer.add_text('Info', f'{ datetime.datetime.now() } Finish experiment')
     writer.close()
