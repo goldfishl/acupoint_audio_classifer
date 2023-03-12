@@ -8,7 +8,6 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 exp_name = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
 
 
-
 # ast audio classifier config
 ## model config
 model_config = {
@@ -27,7 +26,7 @@ model_config = {
 exp_config = {
     'model_name' : 'SSAST-Base-Frame-400',
     'batch_size' : 32,
-    'lr' : 2.5e-5,
+    'lr' : 2.5e-4,
     'head_lr' : 1,  # head learning rate multiplier
     'weight_decay' : 5e-7,
     'lrscheduler_start' : 5, 

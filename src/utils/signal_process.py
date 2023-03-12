@@ -14,8 +14,8 @@ def wav2fbank():
                                                  num_mel_bins = signal_config['num_mel_bins'])
     def torchaudio_fbank(waveform):
         sample_num_per_ms = int(signal_config['sample_rate'] / 1000)
-        sample_num_per_frame = int(sample_num_per_ms * signal_config['frame_length'])
-        sample_num_per_shift = int(sample_num_per_ms * signal_config['frame_shift'])
+        frame_length_samples = int(sample_num_per_ms * signal_config['frame_length'])
+        frame_shift_samples = int(sample_num_per_ms * signal_config['frame_shift'])
 
         # torch.hann_window, torch.hamming_window, torch.blackman_window
         if signal_config['window_type'] == 'hanning':
@@ -27,8 +27,8 @@ def wav2fbank():
 
         # default sample_rate:16000, n_fft:400[16 * 25ms], win_length:n_fft, mel_scale='htk'
         _fank = torchaudio.transforms.MelSpectrogram(
-                            n_fft = sample_num_per_frame,
-                            hop_length = sample_num_per_shift,
+                            n_fft = frame_length_samples,
+                            hop_length = frame_shift_samples,
                             center = False,
                             f_min = 20,
                             power = 2.0,

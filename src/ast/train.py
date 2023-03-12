@@ -60,10 +60,6 @@ def train(audio_model, train_loader, val_loader, writer):
             loss.backward()
             optimizer.step()
 
-            # # warmup
-            # if global_step <= exp_config['warmup_end'] and global_step % exp_config['warmup_step'] == 0:
-            #     warmup_scheduler.step()
-
             global_step += 1
 
         # validate
@@ -162,14 +158,6 @@ def set_optimizer_scheduler(audio_model, writer):
     writer.add_text('Model', 'The mlp parameter number is : {:.3f} million'.format(sum(p.numel() for p in mlp_params) / 1e6))
     writer.add_text('Model', 'The base parameter number is : {:.3f} million'.format(sum(p.numel() for p in base_params) / 1e6))
     
-
-    # set scheduler will reset the initial lr set by the optimizer to 0.
-    # warmup_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=[lambda step: (step / exp_config['warmup_end']) * exp_config['lr'], 
-    #                                                                            lambda step: (step / exp_config['warmup_end']) * exp_config['lr'] * exp_config['head_lr']])
-
-
-
-                                                                               
     normal_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, list(range(exp_config['lrscheduler_start'], exp_config['lrscheduler_end'], exp_config['lrscheduler_step'])),gamma=exp_config['lrscheduler_gamma'])
 
     return optimizer, normal_scheduler
@@ -191,7 +179,7 @@ def save_results(best_val_stats, test_stats, writer):
 
     # save test worst k bar chart
     dataset = AudioDataset(model_config, test_config)
-    fig = worse_k_bar_fig(best_val_stats, label, save_config['worse_k'], dataset, 'test')
+    fig = worse_k_bar_fig(test_stats, label, save_config['worse_k'], dataset, 'test')
     writer.add_figure('Worst/Test_Recall', fig)
 
     # save best val metrics
