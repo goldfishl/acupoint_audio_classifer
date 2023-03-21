@@ -32,10 +32,11 @@ def calculate_stats(preds, target):
       stats: dict, statistics for classification task
     """
 
-    classes_num = target.shape[-1]
+    classes_num = preds.shape[-1]
     stats = {}
 
-    target = torch.argmax(target, dim=1)
+    if len(target.shape) == 2:
+      target = torch.argmax(target, dim=1)
 
     # Accuracy
     stats['weighted_acc'] = multiclass_accuracy(preds, target, num_classes=classes_num, average='weighted')

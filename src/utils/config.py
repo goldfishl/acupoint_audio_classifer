@@ -24,6 +24,5 @@ signal_config = {
     'frame_length' : 25,  # ms
     'frame_shift' : 10,  # ms
     'window_type' : 'hanning',  # ‘hamming’|’hanning’|’povey’|’rectangular’|’blackman’
-    'num_mel_bins' : 128,  # mel triangle filter number
     'compliance' : 'kaldi',  # 'kaldi' | 'torchaudio'
 }

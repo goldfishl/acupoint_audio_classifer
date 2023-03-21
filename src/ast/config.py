@@ -1,17 +1,17 @@
 import os
-from src.utils import wav2fbank, acup_config, signal_config
+from src.utils import wav2fbank, acup_config
 import torch
 import datetime
 
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 exp_name = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-
+num_mel_bins = 128
 
 # ast audio classifier config
 ## model config
 model_config = {
-    'num_mel_bins' : signal_config['num_mel_bins'],
+    'num_mel_bins' : num_mel_bins,
     'target_length' : 512,
     'num_classes' : 418,
     'fshape' : 128,
@@ -26,14 +26,14 @@ model_config = {
 exp_config = {
     'model_name' : 'SSAST-Base-Frame-400',
     'batch_size' : 32,
-    'lr' : 2.5e-4,
+    'lr' : 3e-4,
     'head_lr' : 1,  # head learning rate multiplier
     'weight_decay' : 5e-7,
     'lrscheduler_start' : 5, 
     'lrscheduler_step' : 1,
     'lrscheduler_end' : 1000,
-    'lrscheduler_gamma' : 0.85,  # normal scheduler every epoch
-    'n_epochs' : 30,
+    'lrscheduler_gamma' : 0.9,  # normal scheduler every epoch
+    'n_epochs' : 50,
     'warmup_step' : 50,
     'warmup_end' : 1000,  # set -1 to disable warmup
     'freq_mask' : 48,  # set 0 to disable freq_mask
@@ -62,7 +62,7 @@ save_config = {
 train_config = {
     'batch_size' : exp_config['batch_size'],
     'num_workers' : 8,
-    'feature' : wav2fbank(),
+    'feature' : wav2fbank(model_config['num_mel_bins']),
     'data_path' : acup_config['data_path'],
     'split_file' : acup_config['split_files']['train'],
     'label_file' : acup_config['label_file'],

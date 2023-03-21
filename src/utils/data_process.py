@@ -41,15 +41,14 @@ def split_dataset(config):
                 f.write(f'{i}.wav\n')
 
 
-def load_split(data_path, split_file):
-    data = {}
-    with open(split_file, 'r') as f:
+def load_split(data_config):
+    with open(data_config['split_file'], 'r') as f:
         wav_files = []
         labels = []
         for line in f:
             wav_files.append(line.strip())
             label_file, _ = os.path.splitext(line)
-            with open(os.path.join(data_path, label_file + '.txt'), 'r') as f:
+            with open(os.path.join(data_config['data_path'], label_file + '.txt'), 'r') as f:
                 labels.append(f.read().strip())
 
     return (wav_files, labels)

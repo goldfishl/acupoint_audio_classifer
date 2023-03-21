@@ -22,7 +22,6 @@ class AudioDataset(Dataset):
         
         self.freqm = data_config['freq_mask']
         self.timem = data_config['time_mask']
-        self.mixup = data_config['mixup']
         self.norm_mean = data_config['norm_mean']
         self.norm_std = data_config['norm_std']
         self.skip_norm = data_config['skip_norm']
@@ -40,39 +39,6 @@ class AudioDataset(Dataset):
         self.label_to_index = {label[i]: i for i in range(len(label))}
         self.label_num = model_config['num_classes']
     
-    def maxup_process(self, waveform, label):
-        # find another sample to mix
-        mix_sample_idx = random.randint(0, len(self.data)-1)
-        mix_data = self.data[mix_sample_idx]
-        mix_waveform, _ = torchaudio.load(os.path.join(self.data_path, mix_data))
-        mix_waveform = mix_waveform - mix_waveform.mean()
-
-        # align the length of two waveforms for mixup
-        if waveform.shape[1] != mix_waveform.shape[1]:
-            if waveform.shape[1] > mix_waveform.shape[1]:
-                # padding
-                temp_wav = torch.zeros(1, waveform.shape[1])
-                temp_wav[0, 0:mix_waveform.shape[1]] = mix_waveform
-                mix_waveform = temp_wav
-            else:
-                # cutting
-                mix_waveform = mix_waveform[0, 0:waveform.shape[1]]
-
-        mix_lambda = np.random.beta(10, 10)
-
-        mixed_waveform = mix_lambda * waveform + (1 - mix_lambda) * mix_waveform
-        mixed_waveform = mixed_waveform - mixed_waveform.mean()
-
-        fbank = self.wav2fbank(mixed_waveform)
-
-        label_indices =  torch.zeros(self.label_num)
-        label_indices[self.label_to_index[label]] = mix_lambda
-        label_indices[self.label_to_index[self.label[mix_sample_idx]]] = 1 - mix_lambda
-        label_indices = torch.FloatTensor(label_indices)
-
-        return fbank, label_indices
-
-
 
     def __getitem__(self, index):
         """
@@ -85,20 +51,17 @@ class AudioDataset(Dataset):
         data = self.data[index]
         waveform, _ = torchaudio.load(os.path.join(self.data_path, data))
         waveform = waveform - waveform.mean()
-        # do mix-up for this sample (controlled by the given mixup rate)
-        if random.random() < self.mixup:
-            fbank, label_indices = self.maxup_process(waveform, self.label[index]) 
             
-        # if not do mixup
-        else:
-            fbank = self.wav2fbank(waveform)
-            label_indices =  torch.zeros(self.label_num)
-            label_indices[self.label_to_index[self.label[index]]] = 1.0
 
-        # fbank based VAD
-        if self.vad:
-            fbank = fbank_based_vad(fbank, self.energy_threshold,
-                                    self.bin_threshold, self.mask_threshold)
+        fbank = self.wav2fbank(waveform)
+        label = self.label_to_index[self.label[index]]
+        label = torch.tensor(label)
+
+
+        # # fbank based VAD
+        # if self.vad:
+        #     fbank = fbank_based_vad(fbank, self.energy_threshold,
+        #                             self.bin_threshold, self.mask_threshold)
 
         # add noise to the input
         if self.noise == True:
@@ -133,7 +96,8 @@ class AudioDataset(Dataset):
         elif p < 0:
             fbank = fbank[0:target_length, :]
         
-        return fbank, label_indices
+        fbank = fbank.transpose(0, 1)
+        return fbank, label
 
     def __len__(self):
         return len(self.data)

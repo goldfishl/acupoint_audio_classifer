@@ -4,9 +4,9 @@ import numpy as np
 import pandas as pd
 import os
 import datetime
-from .ast_models import ASTModel
+from .tdnn import AudioTDNN
 from .config import model_config, train_config, val_config, test_config, device
-from .config import exp_config, save_config
+from .config import exp_config, save_config, setup_training_params
 from src.utils import AverageMeter, calculate_stats, load_label, worse_k_bar_fig
 from .dataset import AudioDataset
 # use tensorboardX rather than torch.utils.tensorboard
@@ -14,11 +14,9 @@ from tensorboardX import SummaryWriter
 
 
 
-def train(audio_model, train_loader, val_loader, writer):
+def train(model, train_loader, optimizer, scheduler, loss_fn, val_loader, writer):
     torch.set_grad_enabled(True)
 
-    if not isinstance(audio_model, torch.nn.DataParallel):
-        audio_model = torch.nn.DataParallel(audio_model)
 
     global_step, epoch = 1, 1
     save_config['metric']['Hparam/val_recall'] = 0
@@ -28,42 +26,40 @@ def train(audio_model, train_loader, val_loader, writer):
     # record the average training loss
     loss_meter = AverageMeter()
 
-    optimizer, normal_scheduler = set_optimizer_scheduler(audio_model, writer)
-    loss_fn = nn.BCEWithLogitsLoss()
+    
 
-    audio_model = audio_model.to(device)
-    audio_model.train()
+    model = model.to(device)
+    model.train()
  
     while epoch < exp_config['n_epochs'] + 1:
-        audio_model.train()
-        for i, (audio_input, labels) in enumerate(train_loader):
+        model.train()
+        for i, (model_input, labels) in enumerate(train_loader):
                 
-            B = audio_input.size(0)
-            audio_input = audio_input.to(device, non_blocking=True)
+            B = model_input.size(0)
+            model_input = model_input.to(device, non_blocking=True)
             labels = labels.to(device, non_blocking=True)
 
-            audio_output = audio_model(audio_input, 'ft_cls')
+            audio_output = model(model_input)
             loss = loss_fn(audio_output, labels)
 
             if global_step <= exp_config['warmup_end'] and (global_step % exp_config['warmup_step'] == 0 or global_step == 1):
                 optimizer.param_groups[0]['lr'] = global_step / exp_config['warmup_end'] * exp_config['lr']
-                optimizer.param_groups[1]['lr'] = global_step / exp_config['warmup_end'] * exp_config['lr'] * exp_config['head_lr']
 
             loss_meter.update(loss.item(), B)
             writer.add_scalar('Loss/train_step', loss.item(), global_step)
             writer.add_scalar('Loss/avg_train_step', loss_meter.avg, global_step)
             writer.add_scalar('Learning Rate/base_lr', optimizer.param_groups[0]['lr'], global_step)
-            writer.add_scalar('Learning Rate/head_mlp_lr', optimizer.param_groups[1]['lr'], global_step)
 
 
             optimizer.zero_grad()
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), exp_config['clip_grad_norm'])
             optimizer.step()
 
             global_step += 1
 
         # validate
-        stats = validate(audio_model, val_loader, writer, epoch)
+        stats = validate(model, val_loader, loss_fn, writer, epoch)
 
         if stats['macro_recall'] > save_config['metric']['Hparam/val_recall']:
             best_val_stats = stats
@@ -71,10 +67,10 @@ def train(audio_model, train_loader, val_loader, writer):
             save_config['metric']['Hparam/val_recall'] = stats['macro_recall']
 
 
-            torch.save(audio_model.state_dict(), save_config['best_model_path'])
+            torch.save(model.state_dict(), save_config['best_model_path'])
         
         # normal scheduler every epoch
-        normal_scheduler.step()
+        scheduler.step()
 
         writer.add_scalar('Loss/train_epoch', loss_meter.avg, epoch)
 
@@ -85,42 +81,42 @@ def train(audio_model, train_loader, val_loader, writer):
     
 
 
-def validate(audio_model, val_loader, writer, epoch=None, split='val'):
+def validate(model, val_loader, loss_fn, writer, epoch=None, split='val'):
     loss_meter = AverageMeter()
-    if not isinstance(audio_model, nn.DataParallel):
-        audio_model = nn.DataParallel(audio_model)
-    audio_model = audio_model.to(device)
+    if not isinstance(model, nn.DataParallel):
+        model = nn.DataParallel(model)
+    model = model.to(device)
 
     # switch to evaluate mode
-    audio_model.eval()
+    model.eval()
 
 
     A_predictions = []
     A_targets = []
     with torch.no_grad():
-        for i, (audio_input, target) in enumerate(val_loader):
-            audio_input = audio_input.to(device)
+        for i, (model_input, target) in enumerate(val_loader):
+            model_input = model_input.to(device)
             target = target.to(device)
 
             # compute output
-            audio_output = audio_model(audio_input, 'ft_cls')
+            audio_output = model(model_input)
 
             # compute the loss
-            loss_fn = nn.BCEWithLogitsLoss()
             loss = loss_fn(audio_output, target)
 
-            predictions = audio_output.to('cpu').detach().sigmoid()
+            predictions = audio_output.to('cpu').detach().softmax(dim=1)
             A_predictions.append(predictions)
             A_targets.append(target.to('cpu'))
-            loss_meter.update(loss.item(), audio_input.size(0))
+            loss_meter.update(loss.item(), model_input.size(0))
 
         predictions = torch.cat(A_predictions)
         targets = torch.cat(A_targets)
         stats = calculate_stats(predictions, targets)
         stats["loss"] = loss_meter.avg
 
-
-        writer.add_pr_curve(split.capitalize(), targets, predictions, epoch)
+        one_hot_targets = torch.zeros(targets.shape[0], 418)
+        one_hot_targets.scatter_(1, targets.unsqueeze(1), 1)
+        writer.add_pr_curve(split.capitalize(), one_hot_targets, predictions, epoch)
 
         writer.add_scalar(f'Loss/{split}_epoch', loss_meter.avg, epoch)
         writer.add_scalar(f'Metrics/{split}_accuracy', stats['macro_acc'], epoch)
@@ -131,33 +127,6 @@ def validate(audio_model, val_loader, writer, epoch=None, split='val'):
 
     return stats
 
-
-def set_optimizer_scheduler(audio_model, writer):
-    
-    # calculate statistics for the model
-    save_config['metric']['Hparam/model_params'] = sum(p.numel() for p in audio_model.parameters()) / 1e6
-    trainables = [p for p in audio_model.parameters() if p.requires_grad]
-    writer.add_text('Model', 'Total trainable parameter number is : {:.3f} million'.format(sum(p.numel() for p in trainables) / 1e6))
-
-
-    # diff lr optimizer for mlp head
-    mlp_list = ['mlp_head.0.weight', 'mlp_head.0.bias', 'mlp_head.1.weight', 'mlp_head.1.bias']
-    mlp_params = list(filter(lambda kv: kv[0] in mlp_list, audio_model.module.named_parameters()))
-    base_params = list(filter(lambda kv: kv[0] not in mlp_list, audio_model.module.named_parameters()))
-    mlp_params = [i[1] for i in mlp_params]
-    base_params = [i[1] for i in base_params]
-
-    # only finetuning small/tiny models on balanced audioset uses different learning rate for mlp head
-    optimizer = torch.optim.Adam([{'params': base_params, 'lr': exp_config['lr']}, 
-                                  {'params': mlp_params, 'lr': exp_config['lr'] * exp_config['head_lr']}],
-                                 weight_decay=exp_config['weight_decay'], betas=(0.95, 0.999))
-    
-    writer.add_text('Model', 'The mlp parameter number is : {:.3f} million'.format(sum(p.numel() for p in mlp_params) / 1e6))
-    writer.add_text('Model', 'The base parameter number is : {:.3f} million'.format(sum(p.numel() for p in base_params) / 1e6))
-    
-    normal_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, list(range(exp_config['lrscheduler_start'], exp_config['lrscheduler_end'], exp_config['lrscheduler_step'])),gamma=exp_config['lrscheduler_gamma'])
-
-    return optimizer, normal_scheduler
 
 
 def save_results(best_val_stats, test_stats, writer):
@@ -218,14 +187,12 @@ if __name__ == '__main__':
     writer.add_text('Info', f'{ datetime.datetime.now() } Finish loading train and val data')
 
 
-    audio_model = ASTModel(label_dim=model_config['num_classes'], fshape=model_config['fshape'],
-                        tshape=model_config['tshape'], fstride=model_config['fstride'], tstride=model_config['tstride'],
-                        input_fdim=model_config['num_mel_bins'], input_tdim=model_config['target_length'],
-                        model_size=model_config['model_size'], pretrain_stage=False,
-                        load_pretrained_mdl_path=model_config['pretrained_mdl_path'])
+    model = AudioTDNN(model_config)
+
+    optimizer, scheduler, loss_fn = setup_training_params(model, writer)
 
     writer.add_text('Info', f'{ datetime.datetime.now() } Start to train the model')
-    best_val_stats, best_epoch = train(audio_model, train_loader, val_loader, writer)
+    best_val_stats, best_epoch = train(model, train_loader, optimizer, scheduler, loss_fn, val_loader, writer)
 
     writer.add_text('Info', f'{ datetime.datetime.now() } Start to evaluate the model')
     # evaluate on test set
@@ -235,8 +202,8 @@ if __name__ == '__main__':
             num_workers=test_config['num_workers'], pin_memory=False)
 
     sd = torch.load(save_config['best_model_path'])
-    audio_model.load_state_dict(sd, strict=False)
+    model.load_state_dict(sd, strict=False)
 
-    test_stats = validate(audio_model, test_loader, writer, epoch=best_epoch, split='test')
+    test_stats = validate(model, test_loader, loss_fn, writer, epoch=best_epoch, split='test')
 
     save_results(best_val_stats, test_stats, writer)
